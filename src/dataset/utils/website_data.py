@@ -16,8 +16,7 @@ from src.dataset.utils.data_assets import prompt_example_options, prompt_phrasin
 
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
-print("API Key:", api_key)  # Debugging: Ensure it's set
-openai.api_key = api_key
+api_base = os.getenv("OPENAI_API_BASE")
 
 
 class DownloaderEnv(BrowserEnv):
@@ -127,7 +126,10 @@ def random_query_list(n_queries: int = 100) -> str:
     Returns:
         out (str): The gpt response containing the list of queries
     """
-    client = openai.OpenAI()
+    client = openai.OpenAI(
+        api_key=api_key,
+        base_url=api_base
+    )
     prompt_phrase = random.choice(prompt_phrasing_options)
     prompt_examples = random.sample(prompt_example_options, 3)
     random_letter = random.choice('abcdefghijklmnopqrstuvwxyz')
@@ -140,7 +142,7 @@ def random_query_list(n_queries: int = 100) -> str:
     """
     print(prompt)
     response = client.chat.completions.create(
-        model='gpt-4o-mini',
+        model='gpt-4o',
         messages=[
                     {"role": "system", "content": "You are a helpful assistant"},
                     {"role": "user", "content": prompt},

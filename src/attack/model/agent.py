@@ -20,8 +20,7 @@ from browsergym.utils.obs import flatten_axtree_to_str, flatten_dom_to_str, prun
 
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
-print("API Key:", api_key)  # Debugging: Ensure it's set
-openai.api_key = api_key
+api_base = os.getenv("OPENAI_API_BASE")
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +81,7 @@ class DemoAgent(Agent):
         use_screenshot: bool,
         trigger: str = None,
         save_obs_and_kill_file: str = None,
+        trigger_placeholder: str = "{optim_str}",
     ) -> None:
         super().__init__()
         self.model_name = model_name
@@ -91,12 +91,17 @@ class DemoAgent(Agent):
         self.use_screenshot = use_screenshot
         self.trigger = trigger
         self.save_obs_and_kill_file = save_obs_and_kill_file
+        self.trigger_placeholder = trigger_placeholder
 
         if not (use_html or use_axtree):
             raise ValueError(f"Either use_html or use_axtree must be set to True.")
 
-        if self.model_name != "mistral":
-            self.openai_client = openai.OpenAI()
+        local_models = ["mistral-7B", "mistral-24B", "llama2", "llama3"]
+        if self.model_name not in local_models:
+            self.openai_client = openai.OpenAI(
+                api_key=api_key,
+                base_url=api_base
+            )
 
         self.action_set = HighLevelActionSet(
             subsets=["chat", "tab", "nav", "bid", "infeas"],  # define a subset of the action space
@@ -360,12 +365,25 @@ You will now think step by step and produce your next best action. Reflect on yo
         # Send prompt to model based on model name
 
         match self.model_name:
-            case "gpt-4o-mini":
+            case "gpt-4o-mini" | "gpt-4o":
+                # Same logic as local models: join messages and only inject into user content
+                sys_content = '\n'.join([s['text'] for s in system_msgs])
+                user_content = '\n'.join([u['text'] for u in user_msgs])
+                
+                # Add debug logging
+                if self.trigger:
+                    logger.info(f"[DEBUG] Trigger is provided: {self.trigger[:100]}...")
+                    logger.info(f"[DEBUG] User content contains placeholder '{self.trigger_placeholder}': {self.trigger_placeholder in user_content}")
+                    if self.trigger_placeholder not in user_content:
+                        logger.warning(f"[WARN] Placeholder '{self.trigger_placeholder}' not found in user content! Trigger cannot be injected.")
+                    user_content = user_content.replace(self.trigger_placeholder, self.trigger)
+                    logger.info(f"[DEBUG] User content after replace still contains placeholder: {self.trigger_placeholder in user_content}")
+                
                 response = self.openai_client.chat.completions.create(
                     model=self.model_name,
                     messages=[
-                        {"role": "system", "content": system_msgs},
-                        {"role": "user", "content": user_msgs},
+                        {"role": "system", "content": sys_content},
+                        {"role": "user", "content": user_content},
                     ],
                 )
                 action = response.choices[0].message.content
@@ -373,8 +391,15 @@ You will now think step by step and produce your next best action. Reflect on yo
             case "mistral-7B" | "mistral-24B" | "llama2" | "llama3":
                 sys_content = '\n'.join([s['text'] for s in system_msgs])
                 user_content = '\n'.join([u['text'] for u in user_msgs])
+                
+                # Add debug logging
                 if self.trigger:
-                    user_content = user_content.replace("{optim_str}", self.trigger)
+                    logger.info(f"[DEBUG] Trigger is provided: {self.trigger[:100]}...")
+                    logger.info(f"[DEBUG] User content contains placeholder '{self.trigger_placeholder}': {self.trigger_placeholder in user_content}")
+                    if self.trigger_placeholder not in user_content:
+                        logger.warning(f"[WARN] Placeholder '{self.trigger_placeholder}' not found in user content! Trigger cannot be injected.")
+                    user_content = user_content.replace(self.trigger_placeholder, self.trigger)
+                    logger.info(f"[DEBUG] User content after replace still contains placeholder: {self.trigger_placeholder in user_content}")
                 
                 response = complete(
                     messages=[
@@ -405,7 +430,7 @@ class DemoAgentArgs(AbstractAgentArgs):
     internal states of the agent.
     """
 
-    model_name: str = "gpt-4o-mini"
+    model_name: str = "gpt-4o"
     chat_mode: bool = False
     demo_mode: str = "off"
     use_html: bool = False
@@ -413,6 +438,7 @@ class DemoAgentArgs(AbstractAgentArgs):
     use_screenshot: bool = False
     trigger: str = None
     save_obs_and_kill_file: str = None
+    trigger_placeholder: str = "{optim_str}"
 
     def make_agent(self):
         return DemoAgent(
@@ -424,4 +450,5 @@ class DemoAgentArgs(AbstractAgentArgs):
             use_screenshot=self.use_screenshot,
             trigger=self.trigger,
             save_obs_and_kill_file=self.save_obs_and_kill_file,
+            trigger_placeholder=self.trigger_placeholder,
         )

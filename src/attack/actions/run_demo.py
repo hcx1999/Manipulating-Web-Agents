@@ -20,14 +20,14 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Run experiment with hyperparameters.")
     parser.add_argument(
         "--model",
-        default="llama3",
-        choices=["mistral-7B", "mistral-24B", "gpt-4o-mini", "llama2", "llama3"],
+        default="gpt-4o",
+        choices=["mistral-7B", "mistral-24B", "gpt-4o-mini", "gpt-4o", "llama2", "llama3"],
         help="Which LLM to use for the agent.",
     )
     parser.add_argument(
         "--start_url",
         type=str,
-        default="https://sj110.pages.iu.edu/travel_ad_demo.html",
+        default="https://www.baidu.com/",
         help="Starting URL for the environment.",
     )
     parser.add_argument(
@@ -47,6 +47,12 @@ def parse_args():
         type=str,
         default="",
         help="The file and path for the JSON file to find a trigger to attack the LLM on this specific task. If not provided, there will be no attack.",
+    )
+    parser.add_argument(
+        "--trigger_placeholder",
+        type=str,
+        default="{optim_str}",
+        help="The placeholder string to replace with trigger in the observation.",
     )
     parser.add_argument(
         "--exp_name",
@@ -83,6 +89,7 @@ def main():
         use_axtree=True,
         use_screenshot=False,
         trigger=trigger,
+        trigger_placeholder=args.trigger_placeholder,
     )
     # setting up environment config
     env_args = EnvArgs(

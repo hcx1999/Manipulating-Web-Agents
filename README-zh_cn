@@ -1,0 +1,70 @@
+# 利用间接提示注入攻击操纵基于大语言模型的自主网页代理
+
+随着集成大语言模型（LLM）的应用日益普及，研究其潜在安全风险变得至关重要。这类系统最重大的漏洞之一，就是容易遭受通过间接提示注入发起的对抗攻击。在本代码仓库中，我们展示了一种方法：恶意攻击者可以生成**通用触发器**，借此控制基于大语言模型构建的远程网页导航代理的行为。我们希望通过公开这些信息，帮助从业者认识到自身潜在的安全漏洞，并激励研究人员开发针对此类攻击的防护措施。
+
+## 环境搭建
+
+克隆本仓库后，需要执行以下命令来搭建基于[Browser Gym](https://github.com/ServiceNow/BrowserGym/tree/main)的网页导航基础设施：
+```bash
+conda create -n browser-gym
+conda init
+conda activate browser-gym
+pip install browsergym-core
+playwright install chromium
+pip install transformers
+```
+具体细节可能因计算环境不同而有所差异。
+
+如果你希望运行通用触发器优化流程，需要先生成一个包含网站和网页导航目标的数据集。这可以通过`src/actions/mask_dataset.py`文件提供的命令完成。你还需要创建一些API密钥，并将它们存储在安全的环境变量中。
+
+1.  运行`pip install python-dotenv`，然后执行`touch .env`创建环境变量文件
+2.  在文件中存储你的OpenAI API密钥，以及谷歌可编程搜索引擎的相关信息。按照此[链接](https://developers.google.com/custom-search/v1/introduction)第一部分的说明设置你的搜索引擎。`.env`文件的语法格式如下：
+    ```
+    OPENAI_API_KEY=<你的密钥>
+    GOOGLE_API_KEY=<你的密钥>
+    GOOGLE_ENGINE_NAME=<引擎名称>
+    GOOGLE_CX=<引擎ID>
+    ```
+3.  运行`python -m src.dataset.actions.make_dataset get_webs`，直到你的`data`文件夹中有足够数量的网站JSON文件
+4.  运行`python -m src.dataset.actions.make_dataset set_goals`，过滤被屏蔽的网站JSON文件、重新平衡网站类别，并向OpenAI API提交批量任务，为剩余网站生成目标对象。如果你有超过10000个网站JSON文件，应添加`--n_batch_splits <整数>`参数
+5.  运行`set_goals`命令时，终端会打印出你的批量任务ID。待批量任务完成后，运行`python -m src.dataset.actions.make_dataset get_goals --batch_ids <批量ID 1> <批量ID 2> ...`，将目标对象写入对应的网站JSON文件。OpenAI的批量任务可能需要24小时才能完成，因此你可能需要等待一天后再运行此命令才能成功。
+
+## 运行演示1
+
+演示1展示了攻击者如何托管一个嵌入恶意软件链接的网站，并强制网页导航代理每次都点击该链接。示例网站的JSON文件和用于控制网页代理输出的触发器分别存储在`data/`和`triggers/`文件夹中。
+
+### 对照组
+运行`python -m src.attack.actions.run_demo`将启动一个浏览器，包含示例网页和LLM聊天界面。LLM聊天窗口会要求你为网页导航代理提供一个目标，在窗口中输入类似"搜索飞往芝加哥的航班"这样的任务。代理将在示例网页所在的标签页中按预期完成任务。
+
+### 攻击组
+运行`python -m src.attack.actions.run_demo --trigger_json triggers/zzz_travel_ad_demo_1_trigger_uni_secondary.json`，对该任务中的网页导航代理发起攻击。浏览器会像之前一样启动，包含示例网页和LLM聊天界面，你同样需要在聊天窗口中输入任意目标。整个流程与对照组完全相同，唯一的区别是：`zzz_travel_ad_demo_1_trigger_uni_secondary.json`文件中的触发器会被插入到网站的一个隐藏链接中。你会看到，此时网页代理会忽略你提供的指令，转而点击页面底部的广告！
+
+## 优化你自己的对抗触发器
+
+要优化一个对抗触发器，以控制网页导航代理在你指定的网站上的输出，可以使用`find_narrow_trigger.py`文件。使用数据集生成工具生成网站JSON文件后，你可以在**可访问性树（ax tree）**的任意位置插入文本`{optim_str}`。这会告诉我们使用的`nanogcg`库：你希望在网站的该位置插入触发器。
+
+1.  运行`pip install nanogcg`
+2.  在Hugging Face上同意Llama/Mistral模型的使用条款，并在设置中创建访问令牌
+3.  在你选择的网站数据JSON文件的`ax_tree`对象中插入`{optim_str}`
+4.  运行`python -m src.attack.actions.find_narrow_trigger`。该命令行工具的选项和参数如下：
+```
+-h, --help            显示此帮助信息并退出
+--json JSON           要为其查找触发器的JSON文件路径
+--target TARGET       触发后期望的输出
+--device DEVICE       运行模型的设备
+--trigger_length TRIGGER_LENGTH
+                      触发器长度
+--include_target, --no-include_target
+                      是否在初始触发器中包含目标字符串
+--loss_fn {cw,mm,ce}  使用的损失函数（卡尔尼-瓦格纳损失/最大边际损失/交叉熵损失）
+--search_width SEARCH_WIDTH
+                      搜索宽度
+--top_k TOP_K         前k个令牌替换候选
+--model {mistral-7B,mistral-24B,llama2,llama3}
+                      用于生成的模型
+--dtype DTYPE         模型使用的数据类型
+```
+
+要在我们的环境中成功执行攻击，你优化的目标必须是Browser Gym网页导航操作空间中的一个函数。请参考[action_space.txt](https://github.com/sej2020/LLM-Honeypots/blob/main/src/attack/utils/action_space.txt)文件。
+
+优化后的触发器将保存在`triggers/`文件夹的JSON文件中，文件名与对应的网站数据JSON文件一致。你可以使用这个触发器，通过`python -m src.attack.actions.run_demo`工具配合适当的参数，运行你自己的演示。

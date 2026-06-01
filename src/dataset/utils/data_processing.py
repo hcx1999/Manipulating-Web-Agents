@@ -2,6 +2,11 @@ import json
 import os
 import pathlib
 from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+api_key = os.getenv("OPENAI_API_KEY")
+api_base = os.getenv("OPENAI_API_BASE")
 
 
 def filter_websites() -> str:
@@ -84,7 +89,7 @@ def prepare_batch_files(json_file_list: list, n_splits: int = 2) -> str:
                     "method": "POST",
                     "url": "/v1/chat/completions",
                     "body": {
-                        "model": "gpt-4o-mini",
+                        "model": "gpt-4o",
                         "messages": [{"role": "system", "content": "You are a helpful assistant."},{"role": "user", "content": f"{batch_goal_prompt(json_data['axtree_txt'])}"}],
                         "max_tokens": 200
                     }
@@ -116,7 +121,10 @@ def submit_goal_object_batch(n_splits: int = 2) -> str:
     prepare_batch_files(json_files, n_splits)
 
     # submitting the batch job
-    client = OpenAI()
+    client = OpenAI(
+        api_key=api_key,
+        base_url=api_base
+    )
 
     ids = []
     for i in range(n_splits):
@@ -157,7 +165,10 @@ def get_goal_object_batch(ids: list) -> None:
     Returns:
         None
     """
-    client = OpenAI()
+    client = OpenAI(
+        api_key=api_key,
+        base_url=api_base
+    )
 
     for idx, batch_id in enumerate(ids):
         batch = client.batches.retrieve(batch_id)
